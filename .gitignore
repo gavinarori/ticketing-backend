@@ -1,0 +1,27 @@
+# Binaries
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# Env
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Go
+vendor/
+go.work
+go.work.sum
+
+# Docker volumes / local data
+/deployments/docker/data/
+tmp/
+
+# OS
+.DS_Store
