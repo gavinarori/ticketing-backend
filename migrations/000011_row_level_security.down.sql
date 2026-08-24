@@ -1,0 +1,25 @@
+DROP POLICY IF EXISTS tenant_isolation ON inventory_audit_log;
+DROP POLICY IF EXISTS tenant_isolation ON memberships;
+DROP POLICY IF EXISTS tenant_isolation ON payments;
+DROP POLICY IF EXISTS tenant_isolation ON order_items;
+DROP POLICY IF EXISTS tenant_isolation ON orders;
+DROP POLICY IF EXISTS tenant_isolation ON event_seat_inventory;
+DROP POLICY IF EXISTS tenant_isolation ON event_ticket_categories;
+DROP POLICY IF EXISTS tenant_isolation ON events;
+DROP POLICY IF EXISTS tenant_isolation ON seat_categories;
+DROP POLICY IF EXISTS tenant_isolation ON seats;
+DROP POLICY IF EXISTS tenant_isolation ON venue_sections;
+DROP POLICY IF EXISTS tenant_isolation ON venues;
+
+ALTER TABLE inventory_audit_log     DISABLE ROW LEVEL SECURITY;
+ALTER TABLE memberships             DISABLE ROW LEVEL SECURITY;
+ALTER TABLE payments                DISABLE ROW LEVEL SECURITY;
+ALTER TABLE order_items             DISABLE ROW LEVEL SECURITY;
+ALTER TABLE orders                  DISABLE ROW LEVEL SECURITY;
+ALTER TABLE event_seat_inventory    DISABLE ROW LEVEL SECURITY;
+ALTER TABLE event_ticket_categories DISABLE ROW LEVEL SECURITY;
+ALTER TABLE events                  DISABLE ROW LEVEL SECURITY;
+ALTER TABLE seat_categories         DISABLE ROW LEVEL SECURITY;
+ALTER TABLE seats                   DISABLE ROW LEVEL SECURITY;
+ALTER TABLE venue_sections          DISABLE ROW LEVEL SECURITY;
+ALTER TABLE venues                  DISABLE ROW LEVEL SECURITY;

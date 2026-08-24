@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS seats;
+DROP TABLE IF EXISTS venue_sections;
+DROP TABLE IF EXISTS venues;
