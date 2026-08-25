@@ -49,7 +49,7 @@ docs/           architecture notes, incl. the inventory-locking design
    go mod tidy
    ```
 
-4. **Run migrations** (once migrations exist under `migrations/`)
+4. **Run migrations**
    ```bash
    make migrate-up
    ```
@@ -69,6 +69,13 @@ docs/           architecture notes, incl. the inventory-locking design
    make run-worker
    ```
 
+7. **Run integration tests** (needs `make docker-up`, or Postgres+Redis some other way, with migrations applied to the test DB)
+   ```bash
+   TEST_DATABASE_URL="postgres://ticketing:ticketing@localhost:5432/ticketing?sslmode=disable" \
+   TEST_REDIS_ADDR="localhost:6379" \
+   make test-integration
+   ```
+
 ## Local dev UIs
 
 - Adminer (Postgres UI): http://localhost:8082
@@ -76,5 +83,9 @@ docs/           architecture notes, incl. the inventory-locking design
 
 ## Status
 
-Project scaffolding only — see `docs/` for design notes as they're added.
-Next up: database schema & migrations, domain layer, inventory locking service.
+- ✅ Project scaffolding (config, logging, HTTP server, health checks, graceful shutdown)
+- ✅ Database schema & migrations (`migrations/`, see `docs/database-schema.md`)
+- ✅ Domain layer (`internal/domain/`) — entities + repository/gateway interfaces, no infra deps
+- ✅ Inventory locking service — Postgres CAS repository + Redis lock/waiting-room/rate-limiter + orchestration service, proven under real concurrent load (see `docs/inventory-locking.md`)
+- ⏳ Next: order-creation flow (wires `ConfirmSale` into a transaction with order/order_item/payment creation)
+
