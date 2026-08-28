@@ -58,6 +58,14 @@ type PaymentGateway interface {
 	// client secret) the frontend needs to complete payment.
 	CreateIntent(ctx context.Context, amount Money, idempotencyKey string, metadata map[string]string) (providerPaymentID, clientSecret string, err error)
 
+	// Refund reverses a previously captured payment. Needed specifically
+	// because internal/service/order defers confirming a seat sale until
+	// after payment has already captured (see that package's docs for the
+	// full reasoning) — if the held seat's hold has since expired and the
+	// sale can't be confirmed after all, the money that already moved
+	// must be returned. Returns the provider's refund ID.
+	Refund(ctx context.Context, providerPaymentID string, amount Money, reason string) (refundID string, err error)
+
 	// VerifyWebhookSignature validates that a webhook payload genuinely
 	// came from the provider before any of its contents are trusted.
 	VerifyWebhookSignature(payload []byte, signatureHeader string) error

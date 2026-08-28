@@ -21,9 +21,11 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 
 	"github.com/gavinarori/ticketing-backend/internal/domain"
+	paymentgw "github.com/gavinarori/ticketing-backend/internal/platform/payment"
 	pgrepo "github.com/gavinarori/ticketing-backend/internal/repository/postgres"
 	redisrepo "github.com/gavinarori/ticketing-backend/internal/repository/redis"
 	invsvc "github.com/gavinarori/ticketing-backend/internal/service/inventory"
+	ordersvc "github.com/gavinarori/ticketing-backend/internal/service/order"
 )
 
 // testEnv holds everything a test needs against real infra. Skips the
@@ -31,10 +33,15 @@ import (
 // `go test ./...` without -tags=integration or without infra configured
 // never breaks a normal run.
 type testEnv struct {
-	pool  *pgxpool.Pool
-	redis *goredis.Client
-	svc   *invsvc.Service
-	repo  *pgrepo.InventoryRepo
+	pool        *pgxpool.Pool
+	redis       *goredis.Client
+	svc         *invsvc.Service
+	repo        *pgrepo.InventoryRepo
+	orderRepo   *pgrepo.OrderRepo
+	paymentRepo *pgrepo.PaymentRepo
+	eventRepo   *pgrepo.EventRepo
+	gateway     *paymentgw.MockGateway
+	orderSvc    *ordersvc.Service
 }
 
 func setup(t *testing.T) *testEnv {
@@ -70,7 +77,17 @@ func setup(t *testing.T) *testEnv {
 
 	svc := invsvc.NewService(repo, locker, waitingRoom, rateLimiter, cfg)
 
-	return &testEnv{pool: pool, redis: rc, svc: svc, repo: repo}
+	orderRepo := pgrepo.NewOrderRepo(pool)
+	paymentRepo := pgrepo.NewPaymentRepo(pool)
+	eventRepo := pgrepo.NewEventRepo(pool)
+	gateway := paymentgw.NewMockGateway("test-webhook-secret")
+	orderSvc := ordersvc.NewService(pool, orderRepo, repo, paymentRepo, eventRepo, gateway)
+
+	return &testEnv{
+		pool: pool, redis: rc, svc: svc, repo: repo,
+		orderRepo: orderRepo, paymentRepo: paymentRepo, eventRepo: eventRepo,
+		gateway: gateway, orderSvc: orderSvc,
+	}
 }
 
 // seedInventoryRow inserts one full tenant/venue/event/inventory chain and
