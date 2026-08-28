@@ -87,5 +87,6 @@ docs/           architecture notes, incl. the inventory-locking design
 - ✅ Database schema & migrations (`migrations/`, see `docs/database-schema.md`)
 - ✅ Domain layer (`internal/domain/`) — entities + repository/gateway interfaces, no infra deps
 - ✅ Inventory locking service — Postgres CAS repository + Redis lock/waiting-room/rate-limiter + orchestration service, proven under real concurrent load (see `docs/inventory-locking.md`)
-- ⏳ Next: order-creation flow (wires `ConfirmSale` into a transaction with order/order_item/payment creation)
+- ✅ Order creation flow — CreateOrder/AuthorizePayment/ConfirmPayment, Stripe + mock payment gateways, refund-on-race edge case proven against real Postgres (see `docs/order-flow.md`)
+- ⏳ Next: webhook handler wiring `ConfirmPayment` to a real `POST /webhooks/stripe` route
 

@@ -1,0 +1,16 @@
+-- order_items needs to remember the hold_token each item was created
+-- with, not just which inventory row it points at. Confirming a sale
+-- (see migrations/000006_inventory.up.sql) is gated on hold_token
+-- matching, and internal/service/order defers that confirmation until
+-- after a payment gateway capture succeeds. By then, the *current*
+-- hold_token on event_seat_inventory might belong to a completely
+-- different holder — this row could have expired and been re-held by
+-- someone else in the meantime. Only the token this specific order_item
+-- was created with is safe to use for ConfirmSale at that later point.
+--
+-- Added NOT NULL directly rather than nullable-then-backfilled: this
+-- table has no rows in any environment yet (order creation isn't wired up
+-- until this migration ships), so there's nothing to backfill. A
+-- three-step nullable/backfill/NOT-NULL migration would be the right call
+-- for the same change against a table already holding production data.
+ALTER TABLE order_items ADD COLUMN hold_token UUID NOT NULL;
