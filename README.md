@@ -88,5 +88,7 @@ docs/           architecture notes, incl. the inventory-locking design
 - ✅ Domain layer (`internal/domain/`) — entities + repository/gateway interfaces, no infra deps
 - ✅ Inventory locking service — Postgres CAS repository + Redis lock/waiting-room/rate-limiter + orchestration service, proven under real concurrent load (see `docs/inventory-locking.md`)
 - ✅ Order creation flow — CreateOrder/AuthorizePayment/ConfirmPayment, Stripe + mock payment gateways, refund-on-race edge case proven against real Postgres (see `docs/order-flow.md`)
-- ⏳ Next: webhook handler wiring `ConfirmPayment` to a real `POST /webhooks/stripe` route
+- ✅ Stripe webhook handler (`POST /webhooks/stripe`) — cmd/api fully wired end-to-end for the first time; caught and fixed a real webhook-replay bug (see `docs/order-flow.md`)
+- ✅ Auth & identity — register/login/refresh/logout, JWT middleware, tenant-admin bootstrap; caught and fixed a real live-server bug (RemoteAddr port breaking the Postgres INET column) — see `docs/auth.md`
+- ⏳ Next: fan-facing and admin-dashboard business routes (events, seat holds, orders, venue/pricing management) — `RequireAuth`/`RequireAdmin` exist but nothing uses them yet
 

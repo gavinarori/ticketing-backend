@@ -18,14 +18,15 @@ import (
 // (cmd/api, cmd/worker, cmd/migrate). Binaries that don't need a section
 // (e.g. migrate doesn't need Stripe) simply ignore it.
 type Config struct {
-	App      AppConfig
-	HTTP     HTTPConfig
-	Postgres PostgresConfig
-	Redis    RedisConfig
-	Kafka    KafkaConfig
-	JWT      JWTConfig
-	Stripe   StripeConfig
-	Adyen    AdyenConfig
+	App       AppConfig
+	HTTP      HTTPConfig
+	Postgres  PostgresConfig
+	Redis     RedisConfig
+	Kafka     KafkaConfig
+	JWT       JWTConfig
+	Stripe    StripeConfig
+	Adyen     AdyenConfig
+	Bootstrap BootstrapConfig
 }
 
 type AppConfig struct {
@@ -83,6 +84,18 @@ type StripeConfig struct {
 type AdyenConfig struct {
 	APIKey          string `env:"ADYEN_API_KEY"`
 	MerchantAccount string `env:"ADYEN_MERCHANT_ACCOUNT"`
+}
+
+// BootstrapConfig guards the one-off "create the first admin for a
+// tenant" endpoint (see internal/handler/http/auth.go). There is no
+// normal way to create a tenant's first admin — every other admin
+// creation path requires an existing admin — so this endpoint exists
+// purely to break that chicken-and-egg problem, gated by a shared secret
+// rather than a JWT. An empty Secret disables the endpoint entirely
+// (checked explicitly, not just left to an empty-string comparison
+// succeeding against a missing header) — see the handler.
+type BootstrapConfig struct {
+	Secret string `env:"ADMIN_BOOTSTRAP_SECRET"`
 }
 
 // Load reads a .env file if present (local dev convenience — production

@@ -103,13 +103,55 @@ variable in a first draft of `TestCreateOrder_ExpiredHold_Rejected`
 
 ## What's deliberately not here yet
 
-- **Webhook handler** — `ConfirmPayment` is called directly by tests;
-  wiring a real `POST /webhooks/stripe` handler that calls
-  `VerifyWebhookSignature` then `ConfirmPayment` is next.
 - **Order cancellation** — a fan explicitly abandoning checkout before
   paying has no dedicated method yet; `ReleaseHold` (inventory service)
   covers the seat side, but nothing marks the order `'cancelled'`.
 - **Fee/tax calculation** — `Service.CreateOrder` hardcodes `fees = 0`;
   real fee policy is a business decision left for later.
-- **HTTP handlers generally** — this task, like inventory locking, is
-  service-layer only.
+- **Everything else HTTP** — the webhook route (see below) is now the
+  only real business endpoint that exists; browsing events, holding
+  seats, and creating orders still have no HTTP surface, only service
+  methods.
+
+## Update: the webhook handler, and a real bug it exposed
+
+`internal/handler/http/webhook.go` now implements `POST /webhooks/stripe`
+— the first real business HTTP route in this codebase (everything before
+it was `/healthz`/`/readyz`). It verifies the raw-body signature, extracts
+`tenant_id`/`order_id` from the metadata `AuthorizePayment` embeds in the
+PaymentIntent, resolves the matching payment via the shared idempotency
+key (no new repository method needed), and calls `ConfirmPayment` —
+exactly the method the integration tests already exercised, so the
+handler adds no business logic of its own. `cmd/api/main.go` was also
+wired up for real for the first time: every repository, the inventory
+service, and the order service are now constructed and passed to the
+router, with the payment gateway defaulting to `MockGateway` (loudly
+logged as a warning) when no `STRIPE_SECRET_KEY` is configured.
+
+This was validated by actually running the compiled binary against real
+Postgres and Redis and firing real HTTP requests at it with `curl` — not
+just unit-testing the handler in isolation. That process caught a real
+bug: **replaying an already-confirmed webhook** (which Stripe does by
+design — webhook delivery is at-least-once, so duplicates are routine,
+not exceptional) **triggered an incorrect refund of a legitimately paid,
+already-sold ticket.**
+
+The cause: `ConfirmPayment` had no idempotency check of its own. A
+replay re-ran `ConfirmSale` against inventory that was already `'sold'`
+(not `'held'`), got back `ok=false`, and fell into the
+hold-expired-refund branch described earlier in this doc — the branch
+built for a *different* scenario (payment succeeded, hold genuinely
+expired) firing incorrectly for *this* one (payment succeeded, order
+already fully and correctly fulfilled).
+
+**Fix**: `ConfirmPayment` now checks `order.Status == OrderStatusPaid`
+first and returns immediately if so — a replayed confirmation of an
+already-paid order is a no-op, not a re-run. Verified two ways: a live
+`curl` replay against the running server before the fix reproduced the
+bug exactly (500, and the payment status would have flipped to
+`refunded` had the test continued), and `TestOrderFlow_HoldToPaid` was
+extended to call `ConfirmPayment` a second time on the same order and
+assert the order stays `'paid'`, the inventory stays `'sold'`, and the
+payment stays `'captured'` — not `'refunded'`. Both pass after the fix,
+and the full test suite (8 unit tests, 8 integration tests, all with
+`-race`) was re-run clean afterward.
