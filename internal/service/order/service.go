@@ -261,6 +261,20 @@ func (s *Service) ConfirmPayment(ctx context.Context, tenantID, orderID, payment
 	if err != nil {
 		return fmt.Errorf("order: get order: %w", err)
 	}
+
+	// Idempotency guard: Stripe (and payment providers generally) deliver
+	// webhooks at-least-once, so a duplicate/replayed
+	// "payment_intent.succeeded" event for an order already fully
+	// confirmed is expected, not exceptional. Without this check, a
+	// replay would re-run ConfirmSale against inventory that's already
+	// 'sold' (not 'held'), get back ok=false, and fall into the
+	// hold-expired branch below — incorrectly refunding a legitimately
+	// paid, fulfilled order. Caught by testing this against a real
+	// server, not by inspection.
+	if order.Status == domain.OrderStatusPaid {
+		return nil
+	}
+
 	payment, err := s.payments.GetByID(ctx, tenantID, paymentID)
 	if err != nil {
 		return fmt.Errorf("order: get payment: %w", err)

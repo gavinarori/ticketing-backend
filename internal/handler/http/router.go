@@ -11,15 +11,19 @@ import (
 
 	"github.com/gavinarori/ticketing-backend/internal/config"
 	appmw "github.com/gavinarori/ticketing-backend/internal/handler/middleware"
+	authsvc "github.com/gavinarori/ticketing-backend/internal/service/auth"
 )
 
 // RouterDeps collects everything the router needs to wire up handlers.
 // As services are added (event, inventory, order, ...) their handlers get
 // added here rather than router.go reaching into globals.
 type RouterDeps struct {
-	Cfg    *config.Config
-	Log    *zap.Logger
-	Health *HealthHandler
+	Cfg     *config.Config
+	Log     *zap.Logger
+	Health  *HealthHandler
+	Webhook *WebhookHandler
+	Auth    *AuthHandler
+	AuthSvc *authsvc.Service
 }
 
 // NewRouter builds the full chi.Mux for the API: global middleware chain,
@@ -48,15 +52,43 @@ func NewRouter(deps RouterDeps) http.Handler {
 	r.Get("/healthz", deps.Health.Live)
 	r.Get("/readyz", deps.Health.Ready)
 
+	// --- Payment provider webhooks ---
+	// Deliberately mounted outside /api/v1 and outside any JWT auth
+	// middleware — Stripe authenticates itself via a signed payload, not
+	// a bearer token, and it isn't a "versioned API" consumer.
+	r.Post("/webhooks/stripe", deps.Webhook.Stripe)
+
 	// --- Versioned API ---
 	r.Route("/api/v1", func(v1 chi.Router) {
-		// Placeholder — event, seatmap, order, ticket, user routes will be
-		// mounted here as their services/handlers are built out, e.g.:
-		// v1.Mount("/events", eventHandler.Routes())
 		v1.Get("/", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"data":{"service":"ticketing-backend","status":"scaffold"}}`))
 		})
+
+		// --- Auth: public ---
+		v1.Route("/auth", func(auth chi.Router) {
+			auth.Post("/register", deps.Auth.Register)
+			auth.Post("/login", deps.Auth.Login)
+			auth.Post("/refresh", deps.Auth.Refresh)
+			auth.Post("/logout", deps.Auth.Logout)
+		})
+
+		// --- Auth: requires a valid access token ---
+		v1.Group(func(protected chi.Router) {
+			protected.Use(appmw.RequireAuth(deps.AuthSvc))
+			protected.Get("/me", deps.Auth.Me)
+		})
+
+		// --- Admin: bootstrap is its own auth scheme (shared secret, not
+		// JWT) since it exists specifically to create the first admin,
+		// before any admin — and therefore any valid token — can exist. ---
+		v1.Route("/admin", func(admin chi.Router) {
+			admin.Post("/bootstrap", deps.Auth.BootstrapAdmin)
+		})
+
+		// Fan-facing and admin-dashboard business routes (events,
+		// inventory holds, orders, venue/event management) are not yet
+		// mounted here — this round wires auth and its middleware only.
 	})
 
 	return r

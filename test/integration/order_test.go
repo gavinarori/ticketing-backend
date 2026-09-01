@@ -117,6 +117,36 @@ func TestOrderFlow_HoldToPaid(t *testing.T) {
 	if finalInv.Status != domain.InventoryStatusSold {
 		t.Errorf("expected final inventory status 'sold', got %q", finalInv.Status)
 	}
+
+	// TestOrderFlow_HoldToPaid_ReplayedWebhookIsIdempotent (see below)
+	// covers what happens if ConfirmPayment is called again for this same
+	// already-paid order — a real scenario (payment providers deliver
+	// webhooks at-least-once), not a hypothetical one.
+	if err := env.orderSvc.ConfirmPayment(ctx, tenantID, order.ID, paymentID); err != nil {
+		t.Fatalf("expected a replayed ConfirmPayment call on an already-paid order to be a no-op, got error: %v", err)
+	}
+
+	reconfirmedOrder, err := env.orderRepo.GetByID(ctx, tenantID, order.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reconfirmedOrder.Status != domain.OrderStatusPaid {
+		t.Errorf("expected order to remain 'paid' after a replayed confirmation, got %q", reconfirmedOrder.Status)
+	}
+	reconfirmedInv, err := env.repo.GetByID(ctx, tenantID, inventoryID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reconfirmedInv.Status != domain.InventoryStatusSold {
+		t.Errorf("expected inventory to remain 'sold' after a replayed confirmation, got %q", reconfirmedInv.Status)
+	}
+	reconfirmedPayment, err := env.paymentRepo.GetByID(ctx, tenantID, paymentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reconfirmedPayment.Status != domain.PaymentStatusCaptured {
+		t.Errorf("expected payment to remain 'captured' (NOT refunded) after a replayed confirmation, got %q", reconfirmedPayment.Status)
+	}
 }
 
 // TestCreateOrder_Idempotent proves a retried CreateOrder call with the

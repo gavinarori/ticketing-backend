@@ -15,11 +15,26 @@ const (
 	UserStatusDeleted   UserStatus = "deleted"
 )
 
-// User is a platform-wide fan account — deliberately not tenant-scoped.
-// See migrations/000003_users_and_auth.up.sql: the same fan account
-// should work across every club on the platform, with the relationship to
-// any one tenant expressed via Membership, not by scoping the account
-// itself.
+// UserRole distinguishes a platform-wide fan account from a tenant-scoped
+// club-staff/admin account. See migrations/000013_user_roles.up.sql — a
+// real RBAC system (granular permissions, multiple staff roles per club)
+// is future work; this is deliberately just enough to gate admin
+// endpoints.
+type UserRole string
+
+const (
+	UserRoleFan   UserRole = "fan"
+	UserRoleAdmin UserRole = "admin"
+)
+
+// User is a fan account (Role == UserRoleFan, TenantID nil) or a
+// tenant-scoped club-staff account (Role == UserRoleAdmin, TenantID set).
+// Fans are deliberately platform-wide — see
+// migrations/000003_users_and_auth.up.sql: the same fan account should
+// work across every club on the platform. Admin accounts belong to
+// exactly one club; the database enforces the pairing (see migration
+// 000013's CHECK constraint) so this struct can't represent an
+// inconsistent admin-with-no-tenant or fan-with-a-tenant.
 type User struct {
 	ID              uuid.UUID
 	Email           string
@@ -28,6 +43,8 @@ type User struct {
 	FirstName       string
 	LastName        string
 	Status          UserStatus
+	Role            UserRole
+	TenantID        *uuid.UUID
 	EmailVerifiedAt *time.Time
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
