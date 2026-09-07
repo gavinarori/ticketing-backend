@@ -90,5 +90,6 @@ docs/           architecture notes, incl. the inventory-locking design
 - ✅ Order creation flow — CreateOrder/AuthorizePayment/ConfirmPayment, Stripe + mock payment gateways, refund-on-race edge case proven against real Postgres (see `docs/order-flow.md`)
 - ✅ Stripe webhook handler (`POST /webhooks/stripe`) — cmd/api fully wired end-to-end for the first time; caught and fixed a real webhook-replay bug (see `docs/order-flow.md`)
 - ✅ Auth & identity — register/login/refresh/logout, JWT middleware, tenant-admin bootstrap; caught and fixed a real live-server bug (RemoteAddr port breaking the Postgres INET column) — see `docs/auth.md`
-- ⏳ Next: fan-facing and admin-dashboard business routes (events, seat holds, orders, venue/pricing management) — `RequireAuth`/`RequireAdmin` exist but nothing uses them yet
+- ✅ Fan-facing & admin-dashboard API — the full loop over real HTTP: admin creates venue/event/pricing → publishes GA inventory → fan browses/queues/holds/orders/pays → order shows paid, availability updates live. GA-only publish (documented schema gap for reserved seating) — see `docs/fan-and-admin-api.md`
+- ⏳ Next: admission-control worker loop (`AdmitNext` on a ticker) and the inventory sweep loop — `cmd/worker` is still the original skeleton; both service methods exist and are tested but nothing invokes them automatically yet
 

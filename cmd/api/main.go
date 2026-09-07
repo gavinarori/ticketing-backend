@@ -74,6 +74,8 @@ func run() error {
 	eventRepo := pgrepo.NewEventRepo(dbPool)
 	userRepo := pgrepo.NewUserRepo(dbPool)
 	refreshTokenRepo := pgrepo.NewRefreshTokenRepo(dbPool)
+	venueRepo := pgrepo.NewVenueRepo(dbPool)
+	seatCategoryRepo := pgrepo.NewSeatCategoryRepo(dbPool)
 
 	// --- Redis-backed collaborators for the inventory locking service ---
 	locker := redisrepo.NewLocker(redisClient)
@@ -98,18 +100,27 @@ func run() error {
 	orderSvc := ordersvc.NewService(dbPool, orderRepo, inventoryRepo, paymentRepo, eventRepo, gateway)
 	authService := authsvc.NewService(userRepo, refreshTokenRepo, cfg.JWT)
 
-	_ = inventorySvc // wired for future handlers (seat holds, waiting room) — not yet exposed over HTTP
-
 	healthHandler := apphttp.NewHealthHandler(dbPool, redisClient)
 	webhookHandler := apphttp.NewWebhookHandler(gateway, orderRepo, paymentRepo, orderSvc, log)
 	authHandler := apphttp.NewAuthHandler(authService, cfg.Bootstrap, log)
+	adminVenueHandler := apphttp.NewAdminVenueHandler(venueRepo, log)
+	adminEventHandler := apphttp.NewAdminEventHandler(eventRepo, seatCategoryRepo, inventoryRepo, log)
+	eventHandler := apphttp.NewEventHandler(eventRepo, inventoryRepo, log)
+	inventoryHandler := apphttp.NewInventoryHandler(inventorySvc, log)
+	orderHandler := apphttp.NewOrderHandler(orderRepo, orderSvc, log)
+
 	router := apphttp.NewRouter(apphttp.RouterDeps{
-		Cfg:     cfg,
-		Log:     log,
-		Health:  healthHandler,
-		Webhook: webhookHandler,
-		Auth:    authHandler,
-		AuthSvc: authService,
+		Cfg:        cfg,
+		Log:        log,
+		Health:     healthHandler,
+		Webhook:    webhookHandler,
+		Auth:       authHandler,
+		AuthSvc:    authService,
+		AdminVenue: adminVenueHandler,
+		AdminEvent: adminEventHandler,
+		Event:      eventHandler,
+		Inventory:  inventoryHandler,
+		Order:      orderHandler,
 	})
 
 	srv := &http.Server{
