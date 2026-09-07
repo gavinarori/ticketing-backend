@@ -15,15 +15,18 @@ import (
 )
 
 // RouterDeps collects everything the router needs to wire up handlers.
-// As services are added (event, inventory, order, ...) their handlers get
-// added here rather than router.go reaching into globals.
 type RouterDeps struct {
-	Cfg     *config.Config
-	Log     *zap.Logger
-	Health  *HealthHandler
-	Webhook *WebhookHandler
-	Auth    *AuthHandler
-	AuthSvc *authsvc.Service
+	Cfg        *config.Config
+	Log        *zap.Logger
+	Health     *HealthHandler
+	Webhook    *WebhookHandler
+	Auth       *AuthHandler
+	AuthSvc    *authsvc.Service
+	AdminVenue *AdminVenueHandler
+	AdminEvent *AdminEventHandler
+	Event      *EventHandler
+	Inventory  *InventoryHandler
+	Order      *OrderHandler
 }
 
 // NewRouter builds the full chi.Mux for the API: global middleware chain,
@@ -84,11 +87,54 @@ func NewRouter(deps RouterDeps) http.Handler {
 		// before any admin — and therefore any valid token — can exist. ---
 		v1.Route("/admin", func(admin chi.Router) {
 			admin.Post("/bootstrap", deps.Auth.BootstrapAdmin)
+
+			// --- Admin: requires a valid admin access token. Every
+			// handler mounted here derives its tenant from the token
+			// itself (appmw.TenantIDFromContext), never from a header —
+			// see middleware/tenant.go's doc comment for why that
+			// distinction is a hard security boundary. ---
+			admin.Group(func(protected chi.Router) {
+				protected.Use(appmw.RequireAuth(deps.AuthSvc))
+				protected.Use(appmw.RequireAdmin)
+
+				protected.Post("/venues", deps.AdminVenue.Create)
+				protected.Get("/venues", deps.AdminVenue.List)
+
+				protected.Post("/seat-categories", deps.AdminEvent.CreateSeatCategory)
+
+				protected.Post("/events", deps.AdminEvent.CreateEvent)
+				protected.Post("/events/{eventID}/ticket-categories", deps.AdminEvent.CreateTicketCategory)
+				protected.Post("/events/{eventID}/publish", deps.AdminEvent.PublishEvent)
+			})
 		})
 
-		// Fan-facing and admin-dashboard business routes (events,
-		// inventory holds, orders, venue/event management) are not yet
-		// mounted here — this round wires auth and its middleware only.
+		// --- Fan-facing: public browsing, scoped by X-Tenant-ID (see
+		// middleware/tenant.go) since a fan account isn't tied to one
+		// club — no auth required to look at what's on sale. ---
+		v1.Group(func(fan chi.Router) {
+			fan.Use(appmw.RequireTenantHeader)
+			fan.Get("/events", deps.Event.List)
+			fan.Get("/events/{id}", deps.Event.Get)
+		})
+
+		// --- Fan-facing: the purchase path. Requires both an
+		// authenticated fan AND a resolved tenant — every handler here
+		// needs to know who is buying and from which club. ---
+		v1.Group(func(purchase chi.Router) {
+			purchase.Use(appmw.RequireAuth(deps.AuthSvc))
+			purchase.Use(appmw.RequireTenantHeader)
+
+			purchase.Post("/events/{eventID}/queue", deps.Inventory.JoinQueue)
+			purchase.Get("/events/{eventID}/queue", deps.Inventory.QueueStatus)
+
+			purchase.Post("/inventory/{id}/hold", deps.Inventory.Hold)
+			purchase.Post("/inventory/{id}/release", deps.Inventory.Release)
+
+			purchase.Post("/orders", deps.Order.Create)
+			purchase.Post("/orders/{id}/authorize", deps.Order.Authorize)
+			purchase.Get("/orders", deps.Order.List)
+			purchase.Get("/orders/{id}", deps.Order.Get)
+		})
 	})
 
 	return r

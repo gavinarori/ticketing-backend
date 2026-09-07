@@ -90,3 +90,11 @@ type EventRepository interface {
 	CreateTicketCategory(ctx context.Context, etc *EventTicketCategory) error
 	ListTicketCategories(ctx context.Context, tenantID, eventID uuid.UUID) ([]*EventTicketCategory, error)
 }
+
+// SeatCategoryRepository is separate from EventRepository because
+// SeatCategory is a tenant-level concept (a reusable price-tier label),
+// not an event-level one — see SeatCategory's own doc comment.
+type SeatCategoryRepository interface {
+	Create(ctx context.Context, sc *SeatCategory) error
+	ListByTenant(ctx context.Context, tenantID uuid.UUID) ([]*SeatCategory, error)
+}
