@@ -27,6 +27,7 @@ type Config struct {
 	Stripe    StripeConfig
 	Adyen     AdyenConfig
 	Bootstrap BootstrapConfig
+	Worker    WorkerConfig
 }
 
 type AppConfig struct {
@@ -96,6 +97,22 @@ type AdyenConfig struct {
 // succeeding against a missing header) — see the handler.
 type BootstrapConfig struct {
 	Secret string `env:"ADMIN_BOOTSTRAP_SECRET"`
+}
+
+// WorkerConfig tunes cmd/worker's two background loops. Both loops are
+// independent (different failure modes, different cadences) — the sweep
+// loop reclaims expired holds platform-wide; the admission loop lets
+// waiting-room fans through per-event. See internal/service/admission
+// and internal/service/inventory.Service.SweepExpiredHolds.
+type WorkerConfig struct {
+	SweepInterval     time.Duration `env:"WORKER_SWEEP_INTERVAL" envDefault:"10s"`
+	SweepBatchSize    int           `env:"WORKER_SWEEP_BATCH_SIZE" envDefault:"500" validate:"min=1"`
+	AdmissionInterval time.Duration `env:"WORKER_ADMISSION_INTERVAL" envDefault:"5s"`
+	// AdmissionMaxPerTick caps how many fans a single event can have
+	// admitted in one tick, so one huge event can't starve every other
+	// tenant's admission processing sharing this worker — see
+	// admission.Service.RunOnce's doc comment.
+	AdmissionMaxPerTick int64 `env:"WORKER_ADMISSION_MAX_PER_TICK" envDefault:"200" validate:"min=1"`
 }
 
 // Load reads a .env file if present (local dev convenience — production

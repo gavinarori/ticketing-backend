@@ -26,13 +26,23 @@ const eventColumns = `id, tenant_id, venue_id, name, competition, home_team, awa
 func scanEvent(row pgx.Row) (*domain.Event, error) {
 	var e domain.Event
 	var status string
+	var competition, homeTeam, awayTeam *string
 	if err := row.Scan(
-		&e.ID, &e.TenantID, &e.VenueID, &e.Name, &e.Competition, &e.HomeTeam, &e.AwayTeam,
+		&e.ID, &e.TenantID, &e.VenueID, &e.Name, &competition, &homeTeam, &awayTeam,
 		&e.StartsAt, &e.DoorsOpenAt, &e.SalesStartAt, &e.SalesEndAt, &status, &e.CreatedAt, &e.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}
 	e.Status = domain.EventStatus(status)
+	if competition != nil {
+		e.Competition = *competition
+	}
+	if homeTeam != nil {
+		e.HomeTeam = *homeTeam
+	}
+	if awayTeam != nil {
+		e.AwayTeam = *awayTeam
+	}
 	return &e, nil
 }
 
@@ -43,7 +53,7 @@ func (r *EventRepo) Create(ctx context.Context, e *domain.Event) error {
 	_, err := db(ctx, r.pool).Exec(ctx,
 		`INSERT INTO events (id, tenant_id, venue_id, name, competition, home_team, away_team, starts_at, doors_open_at, sales_start_at, sales_end_at, status)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-		e.ID, e.TenantID, e.VenueID, e.Name, e.Competition, e.HomeTeam, e.AwayTeam,
+		e.ID, e.TenantID, e.VenueID, e.Name, nullIfEmpty(e.Competition), nullIfEmpty(e.HomeTeam), nullIfEmpty(e.AwayTeam),
 		e.StartsAt, e.DoorsOpenAt, e.SalesStartAt, e.SalesEndAt, string(e.Status),
 	)
 	if err != nil {
@@ -69,7 +79,7 @@ func (r *EventRepo) Update(ctx context.Context, e *domain.Event) error {
 		`UPDATE events
 		 SET name=$1, competition=$2, home_team=$3, away_team=$4, starts_at=$5, doors_open_at=$6, sales_start_at=$7, sales_end_at=$8, status=$9
 		 WHERE id = $10 AND tenant_id = $11`,
-		e.Name, e.Competition, e.HomeTeam, e.AwayTeam, e.StartsAt, e.DoorsOpenAt, e.SalesStartAt, e.SalesEndAt, string(e.Status), e.ID, e.TenantID,
+		e.Name, nullIfEmpty(e.Competition), nullIfEmpty(e.HomeTeam), nullIfEmpty(e.AwayTeam), e.StartsAt, e.DoorsOpenAt, e.SalesStartAt, e.SalesEndAt, string(e.Status), e.ID, e.TenantID,
 	)
 	if err != nil {
 		return fmt.Errorf("postgres: update event: %w", err)
