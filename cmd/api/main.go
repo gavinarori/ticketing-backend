@@ -76,6 +76,7 @@ func run() error {
 	refreshTokenRepo := pgrepo.NewRefreshTokenRepo(dbPool)
 	venueRepo := pgrepo.NewVenueRepo(dbPool)
 	seatCategoryRepo := pgrepo.NewSeatCategoryRepo(dbPool)
+	notificationRepo := pgrepo.NewNotificationRepo(dbPool)
 
 	// --- Redis-backed collaborators for the inventory locking service ---
 	locker := redisrepo.NewLocker(redisClient)
@@ -97,7 +98,7 @@ func run() error {
 		log.Warn("payment gateway: MOCK — no STRIPE_SECRET_KEY configured; no real payments will be processed")
 	}
 
-	orderSvc := ordersvc.NewService(dbPool, orderRepo, inventoryRepo, paymentRepo, eventRepo, gateway)
+	orderSvc := ordersvc.NewService(dbPool, orderRepo, inventoryRepo, paymentRepo, eventRepo, gateway, notificationRepo)
 	authService := authsvc.NewService(userRepo, refreshTokenRepo, cfg.JWT)
 
 	healthHandler := apphttp.NewHealthHandler(dbPool, redisClient)

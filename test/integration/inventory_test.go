@@ -41,6 +41,8 @@ type testEnv struct {
 	paymentRepo *pgrepo.PaymentRepo
 	eventRepo   *pgrepo.EventRepo
 	tenantRepo  *pgrepo.TenantRepo
+	userRepo    *pgrepo.UserRepo
+	notifRepo   *pgrepo.NotificationRepo
 	gateway     *paymentgw.MockGateway
 	orderSvc    *ordersvc.Service
 }
@@ -82,12 +84,15 @@ func setup(t *testing.T) *testEnv {
 	paymentRepo := pgrepo.NewPaymentRepo(pool)
 	eventRepo := pgrepo.NewEventRepo(pool)
 	tenantRepo := pgrepo.NewTenantRepo(pool)
+	userRepo := pgrepo.NewUserRepo(pool)
+	notifRepo := pgrepo.NewNotificationRepo(pool)
 	gateway := paymentgw.NewMockGateway("test-webhook-secret")
-	orderSvc := ordersvc.NewService(pool, orderRepo, repo, paymentRepo, eventRepo, gateway)
+	orderSvc := ordersvc.NewService(pool, orderRepo, repo, paymentRepo, eventRepo, gateway, notifRepo)
 
 	return &testEnv{
 		pool: pool, redis: rc, svc: svc, repo: repo,
 		orderRepo: orderRepo, paymentRepo: paymentRepo, eventRepo: eventRepo, tenantRepo: tenantRepo,
+		userRepo: userRepo, notifRepo: notifRepo,
 		gateway: gateway, orderSvc: orderSvc,
 	}
 }

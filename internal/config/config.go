@@ -28,6 +28,7 @@ type Config struct {
 	Adyen     AdyenConfig
 	Bootstrap BootstrapConfig
 	Worker    WorkerConfig
+	Email     EmailConfig
 }
 
 type AppConfig struct {
@@ -99,11 +100,13 @@ type BootstrapConfig struct {
 	Secret string `env:"ADMIN_BOOTSTRAP_SECRET"`
 }
 
-// WorkerConfig tunes cmd/worker's two background loops. Both loops are
+// WorkerConfig tunes cmd/worker's three background loops. All three are
 // independent (different failure modes, different cadences) — the sweep
 // loop reclaims expired holds platform-wide; the admission loop lets
-// waiting-room fans through per-event. See internal/service/admission
-// and internal/service/inventory.Service.SweepExpiredHolds.
+// waiting-room fans through per-event; the notification dispatch loop
+// sends whatever's queued in the transactional outbox. See
+// internal/service/admission, internal/service/inventory's
+// SweepExpiredHolds, and internal/service/notification.
 type WorkerConfig struct {
 	SweepInterval     time.Duration `env:"WORKER_SWEEP_INTERVAL" envDefault:"10s"`
 	SweepBatchSize    int           `env:"WORKER_SWEEP_BATCH_SIZE" envDefault:"500" validate:"min=1"`
@@ -113,6 +116,23 @@ type WorkerConfig struct {
 	// tenant's admission processing sharing this worker — see
 	// admission.Service.RunOnce's doc comment.
 	AdmissionMaxPerTick int64 `env:"WORKER_ADMISSION_MAX_PER_TICK" envDefault:"200" validate:"min=1"`
+
+	NotificationInterval  time.Duration `env:"WORKER_NOTIFICATION_INTERVAL" envDefault:"5s"`
+	NotificationBatchSize int           `env:"WORKER_NOTIFICATION_BATCH_SIZE" envDefault:"100" validate:"min=1"`
+}
+
+// EmailConfig configures the outbound email transport. Mirrors the
+// Stripe/mock payment gateway pattern: a real SMTPSender is used when
+// Host is set, otherwise cmd/worker falls back to ConsoleSender (logs
+// instead of sending) with a loud warning — see cmd/worker/main.go. This
+// is a deliberate dev-convenience fallback, not a silent production
+// footgun.
+type EmailConfig struct {
+	Host     string `env:"SMTP_HOST"`
+	Port     string `env:"SMTP_PORT" envDefault:"587"`
+	Username string `env:"SMTP_USERNAME"`
+	Password string `env:"SMTP_PASSWORD"`
+	From     string `env:"SMTP_FROM" envDefault:"noreply@ticketing.example"`
 }
 
 // Load reads a .env file if present (local dev convenience — production

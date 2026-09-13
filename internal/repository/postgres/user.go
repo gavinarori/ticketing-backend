@@ -25,11 +25,27 @@ const userColumns = `id, email, phone, password_hash, first_name, last_name, sta
 func scanUser(row pgx.Row) (*domain.User, error) {
 	var u domain.User
 	var status, role string
+	// phone and password_hash are both nullable columns (see
+	// migrations/000003_users_and_auth.up.sql — phone has no NOT NULL;
+	// password_hash has none either, deliberately, for a future
+	// OAuth/SSO-only account with no local password). Scan both through
+	// *string first, or any row with either NULL fails to scan at all.
+	// Found by running the real notification dispatch flow against real
+	// Postgres rows seeded with neither set — a fakes-based test would
+	// never have caught this, since a fake repository doesn't model
+	// column nullability.
+	var phone, passwordHash *string
 	if err := row.Scan(
-		&u.ID, &u.Email, &u.Phone, &u.PasswordHash, &u.FirstName, &u.LastName,
+		&u.ID, &u.Email, &phone, &passwordHash, &u.FirstName, &u.LastName,
 		&status, &role, &u.TenantID, &u.EmailVerifiedAt, &u.CreatedAt, &u.UpdatedAt,
 	); err != nil {
 		return nil, err
+	}
+	if phone != nil {
+		u.Phone = *phone
+	}
+	if passwordHash != nil {
+		u.PasswordHash = *passwordHash
 	}
 	u.Status = domain.UserStatus(status)
 	u.Role = domain.UserRole(role)

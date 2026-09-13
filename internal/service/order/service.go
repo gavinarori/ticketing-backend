@@ -23,6 +23,14 @@
 // pick, and given refunding is a well-trodden, auditable path while
 // "silently holding a sold-but-unpaid seat" is not, payment-first was
 // chosen.
+//
+// A second integration point lives in the same ConfirmPayment method:
+// once an order is marked 'paid', a confirmation notification is
+// enqueued into the transactional outbox (see
+// migrations/000014_notifications.up.sql and
+// internal/service/notification) inside the SAME database transaction.
+// This service only ever enqueues — it never sends anything itself, and
+// never blocks on email/SMS delivery.
 package order
 
 import (
@@ -46,12 +54,13 @@ import (
 // transaction" is inherently Postgres-shaped in a way the domain-level
 // repository interfaces don't (and shouldn't) try to express.
 type Service struct {
-	pool      *pgxpool.Pool
-	orders    domain.OrderRepository
-	inventory domain.InventoryRepository
-	payments  domain.PaymentRepository
-	events    domain.EventRepository
-	gateway   domain.PaymentGateway
+	pool          *pgxpool.Pool
+	orders        domain.OrderRepository
+	inventory     domain.InventoryRepository
+	payments      domain.PaymentRepository
+	events        domain.EventRepository
+	gateway       domain.PaymentGateway
+	notifications domain.NotificationRepository
 }
 
 func NewService(
@@ -61,8 +70,12 @@ func NewService(
 	payments domain.PaymentRepository,
 	events domain.EventRepository,
 	gateway domain.PaymentGateway,
+	notifications domain.NotificationRepository,
 ) *Service {
-	return &Service{pool: pool, orders: orders, inventory: inventory, payments: payments, events: events, gateway: gateway}
+	return &Service{
+		pool: pool, orders: orders, inventory: inventory, payments: payments,
+		events: events, gateway: gateway, notifications: notifications,
+	}
 }
 
 // HeldItem is one seat the caller currently holds — from a prior
@@ -301,6 +314,31 @@ func (s *Service) ConfirmPayment(ctx context.Context, tenantID, orderID, payment
 		if err := s.orders.UpdateStatus(ctx, tenantID, order.ID, domain.OrderStatusPaid); err != nil {
 			return fmt.Errorf("order: mark order paid: %w", err)
 		}
+
+		// Enqueue the confirmation notification in the SAME transaction as
+		// marking the order paid — see
+		// migrations/000014_notifications.up.sql: that atomicity is the
+		// whole point of the outbox pattern. It makes "the order is paid
+		// but no confirmation was ever queued" a schema-level
+		// impossibility, the same way earlier migrations made "sold
+		// without a valid hold" impossible. Actually SENDING the email
+		// happens later, decoupled, via internal/service/notification
+		// polling from cmd/worker — this call only durably records the
+		// intent to send.
+		if err := s.notifications.Create(ctx, &domain.Notification{
+			TenantID: tenantID,
+			UserID:   order.UserID,
+			Type:     domain.NotificationTypeOrderConfirmation,
+			Payload: map[string]any{
+				"order_id":    order.ID.String(),
+				"item_count":  len(items),
+				"total_cents": order.Total.Cents,
+				"currency":    order.Total.Currency,
+			},
+		}); err != nil {
+			return fmt.Errorf("order: enqueue confirmation notification: %w", err)
+		}
+
 		return nil
 	})
 
