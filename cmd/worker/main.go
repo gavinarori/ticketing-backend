@@ -1,12 +1,11 @@
 // Command worker runs background processing that must not block the
-// request path in cmd/api: reclaiming expired inventory holds and
-// admitting fans from each event's waiting room. Both are ticker-driven
-// loops, run as separate goroutines so one's failure or slowness never
-// blocks the other.
+// request path in cmd/api: reclaiming expired inventory holds, admitting
+// fans from each event's waiting room, and dispatching queued
+// notifications. All three are ticker-driven loops, run as separate
+// goroutines so one's failure or slowness never blocks the others.
 //
-// Kafka consumers for order events / notification dispatch are not yet
-// built — this worker's scope today is exactly the two loops described
-// above.
+// Kafka consumers for order events are not yet built — this worker's
+// scope today is exactly the three loops described above.
 package main
 
 import (
@@ -21,13 +20,16 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/gavinarori/ticketing-backend/internal/config"
+	"github.com/gavinarori/ticketing-backend/internal/domain"
 	"github.com/gavinarori/ticketing-backend/internal/pkg/logger"
 	"github.com/gavinarori/ticketing-backend/internal/platform/database"
+	"github.com/gavinarori/ticketing-backend/internal/platform/email"
 	appredis "github.com/gavinarori/ticketing-backend/internal/platform/redis"
 	pgrepo "github.com/gavinarori/ticketing-backend/internal/repository/postgres"
 	redisrepo "github.com/gavinarori/ticketing-backend/internal/repository/redis"
 	"github.com/gavinarori/ticketing-backend/internal/service/admission"
 	invsvc "github.com/gavinarori/ticketing-backend/internal/service/inventory"
+	notifsvc "github.com/gavinarori/ticketing-backend/internal/service/notification"
 )
 
 func main() {
@@ -54,7 +56,8 @@ func run() error {
 
 	log.Info("starting worker", zap.String("env", cfg.App.Env),
 		zap.Duration("sweep_interval", cfg.Worker.SweepInterval),
-		zap.Duration("admission_interval", cfg.Worker.AdmissionInterval))
+		zap.Duration("admission_interval", cfg.Worker.AdmissionInterval),
+		zap.Duration("notification_interval", cfg.Worker.NotificationInterval))
 
 	dbPool, err := database.NewPool(ctx, cfg.Postgres)
 	if err != nil {
@@ -73,6 +76,8 @@ func run() error {
 	inventoryRepo := pgrepo.NewInventoryRepo(dbPool)
 	eventRepo := pgrepo.NewEventRepo(dbPool)
 	tenantRepo := pgrepo.NewTenantRepo(dbPool)
+	notificationRepo := pgrepo.NewNotificationRepo(dbPool)
+	userRepo := pgrepo.NewUserRepo(dbPool)
 
 	locker := redisrepo.NewLocker(redisClient)
 	waitingRoom := redisrepo.NewWaitingRoom(redisClient)
@@ -81,12 +86,27 @@ func run() error {
 
 	admissionSvc := admission.NewService(tenantRepo, eventRepo, inventoryRepo, inventorySvc, cfg.Worker.AdmissionMaxPerTick, log)
 
+	// Real SMTP if configured, otherwise log-only — same dev-convenience
+	// fallback pattern as the payment gateway in cmd/api, logged loudly
+	// so a misconfigured production deploy is obvious rather than
+	// discovered when a fan never receives their confirmation.
+	var sender domain.EmailSender
+	if cfg.Email.Host != "" {
+		sender = email.NewSMTPSender(cfg.Email.Host, cfg.Email.Port, cfg.Email.Username, cfg.Email.Password, cfg.Email.From)
+		log.Info("email sender: smtp", zap.String("host", cfg.Email.Host))
+	} else {
+		sender = email.NewConsoleSender(log)
+		log.Warn("email sender: CONSOLE — no SMTP_HOST configured; no real emails will be sent")
+	}
+	notificationSvc := notifsvc.NewService(notificationRepo, userRepo, sender, log)
+
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go runSweepLoop(ctx, &wg, inventorySvc, cfg.Worker, log)
 	go runAdmissionLoop(ctx, &wg, admissionSvc, cfg.Worker, log)
+	go runNotificationLoop(ctx, &wg, notificationSvc, cfg.Worker, log)
 
-	log.Info("worker ready — sweep and admission loops running")
+	log.Info("worker ready — sweep, admission, and notification loops running")
 
 	<-ctx.Done()
 	log.Info("shutdown signal received, waiting for in-flight ticks to finish")
@@ -143,6 +163,33 @@ func runAdmissionLoop(ctx context.Context, wg *sync.WaitGroup, svc *admission.Se
 			}
 			if admitted > 0 {
 				log.Info("admission_tick", zap.Int("admitted", admitted))
+			}
+		}
+	}
+}
+
+// runNotificationLoop periodically sends whatever's queued in the
+// transactional outbox — see migrations/000014_notifications.up.sql and
+// internal/service/notification. The enqueue side lives inside
+// internal/service/order.Service.ConfirmPayment, committed atomically
+// with marking an order 'paid'; this loop is the decoupled send side.
+func runNotificationLoop(ctx context.Context, wg *sync.WaitGroup, svc *notifsvc.Service, cfg config.WorkerConfig, log *zap.Logger) {
+	defer wg.Done()
+	ticker := time.NewTicker(cfg.NotificationInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			sent, err := svc.ProcessPending(ctx, cfg.NotificationBatchSize)
+			if err != nil {
+				log.Error("notification_tick_failed", zap.Error(err))
+				continue
+			}
+			if sent > 0 {
+				log.Info("notification_tick", zap.Int("sent", sent))
 			}
 		}
 	}
